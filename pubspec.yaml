@@ -1,0 +1,9 @@
+name: bacnet_dart
+description: Pure Dart BACnet/IP protocol stack. No FFI, no native code.
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  meta: ^1.15.0
