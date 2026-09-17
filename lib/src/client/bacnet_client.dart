@@ -126,6 +126,30 @@ class BacnetClient {
     _transport.sendBroadcast(config.port, npdu);
   }
 
+  /// Send a Who-Is to **one** address rather than to the broadcast domain.
+  ///
+  /// A device answers a directed Who-Is with the same I-Am it would send to a
+  /// broadcast one, so responses arrive as [IAmResponse] on [events] exactly
+  /// as they do for [sendWhoIs].
+  ///
+  /// This exists because broadcast discovery is not dependable everywhere it
+  /// is needed: Android's handling of broadcast UDP to 47808 varies by
+  /// version and by OEM, and plenty of sites route BACnet across subnets where
+  /// a local broadcast never reaches the controller at all. A directed probe
+  /// at a known address works in both cases, and it is the only way to
+  /// discover a device whose address is known but whose broadcast domain is
+  /// not shared.
+  void sendWhoIsTo(
+    String ip,
+    int port, {
+    int lowLimit = -1,
+    int highLimit = -1,
+  }) {
+    final apdu = encodeWhoIs(lowLimit: lowLimit, highLimit: highLimit);
+    final npdu = _wrapNpdu(apdu, expectingReply: false);
+    _transport.sendUnicast(InternetAddress(ip), port, npdu);
+  }
+
   // -------------------------------------------------------------------------
   // ReadProperty
   // -------------------------------------------------------------------------

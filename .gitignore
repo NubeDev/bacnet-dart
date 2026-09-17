@@ -1,0 +1,9 @@
+# Dart build artifacts. `.dart_tool/` in particular holds absolute paths from
+# whichever machine last ran `pub get`, so it is actively wrong for anybody else.
+.dart_tool/
+.packages
+build/
+
+# A library publishes no lockfile: its consumers resolve their own versions,
+# and a committed one here is ignored by pub anyway.
+pubspec.lock
