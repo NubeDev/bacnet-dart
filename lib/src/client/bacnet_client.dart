@@ -49,6 +49,10 @@ class BacnetClient {
   /// Device binding table: deviceId → (address, port).
   final Map<int, (InternetAddress, int)> _deviceBindings = {};
 
+  /// Devices behind a router: deviceId → (network, MAC). The binding above is
+  /// the router's address; this is where the router forwards to.
+  final Map<int, (int, Uint8List)> _deviceRoutes = {};
+
   StreamSubscription<void>? _transportSub;
 
   /// Stream of unsolicited BACnet events (I-Am, errors, etc).
@@ -96,17 +100,37 @@ class BacnetClient {
   // -------------------------------------------------------------------------
 
   /// Register a device's IP address for unicast communication.
-  void addDeviceBinding(int deviceId, String ip, {int? port}) {
+  ///
+  /// For a device behind a router (an MS/TP device under a BACnet/IP gateway)
+  /// [ip] and [port] are the **router's**, and [network] and [mac] say where
+  /// the router forwards to — the SNET and SADR its I-Am arrived with.
+  void addDeviceBinding(
+    int deviceId,
+    String ip, {
+    int? port,
+    int? network,
+    List<int>? mac,
+  }) {
     _deviceBindings[deviceId] = (
       InternetAddress(ip),
       port ?? config.port,
     );
+    if (network != null) {
+      _deviceRoutes[deviceId] = (network, Uint8List.fromList(mac ?? const []));
+    } else {
+      _deviceRoutes.remove(deviceId);
+    }
   }
 
   /// Remove a device binding.
   void removeDeviceBinding(int deviceId) {
     _deviceBindings.remove(deviceId);
+    _deviceRoutes.remove(deviceId);
   }
+
+  /// The (network, MAC) a routed device sits at, or null for a device on the
+  /// local network.
+  (int, Uint8List)? getDeviceRoute(int deviceId) => _deviceRoutes[deviceId];
 
   /// Get the binding for a device, or null.
   (InternetAddress, int)? getDeviceBinding(int deviceId) {
@@ -482,11 +506,21 @@ class BacnetClient {
       final iam = decodeIAm(payload);
       if (iam == null) return;
 
-      // Auto-register device binding from I-Am source
+      // Auto-register device binding from I-Am source — and, for a device
+      // that answered through a router, the network and MAC behind it.
+      final npdu = decodeNpduHeader(datagram.data);
+      final int? srcNetwork = npdu?.srcNetwork;
+      final Uint8List? srcMac =
+          npdu?.srcAddress == null ? null : Uint8List.fromList(npdu!.srcAddress!);
       _deviceBindings[iam.deviceId] = (
         datagram.sourceAddress,
         datagram.sourcePort,
       );
+      if (srcNetwork != null) {
+        _deviceRoutes[iam.deviceId] = (srcNetwork, srcMac ?? Uint8List(0));
+      } else {
+        _deviceRoutes.remove(iam.deviceId);
+      }
 
       final event = IAmResponse(
         deviceId: iam.deviceId,
@@ -495,6 +529,8 @@ class BacnetClient {
         vendorId: iam.vendorId,
         sourceAddress: datagram.sourceAddress,
         sourcePort: datagram.sourcePort,
+        sourceNetwork: srcNetwork,
+        sourceMac: srcMac,
       );
       _eventController.add(event);
     }
@@ -615,7 +651,13 @@ class BacnetClient {
     final completer = Completer<BacnetEvent>();
     _pending[invokeId] = completer;
 
-    final npdu = _wrapNpdu(apdu, expectingReply: true);
+    final route = _deviceRoutes[deviceId];
+    final npdu = _wrapNpdu(
+      apdu,
+      expectingReply: true,
+      destNetwork: route?.$1,
+      destAddress: route?.$2,
+    );
     _transport.sendUnicast(binding.$1, binding.$2, npdu);
 
     try {
@@ -636,8 +678,17 @@ class BacnetClient {
     }
   }
 
-  Uint8List _wrapNpdu(Uint8List apdu, {required bool expectingReply}) {
-    final npduHeader = encodeNpdu(expectingReply: expectingReply);
+  Uint8List _wrapNpdu(
+    Uint8List apdu, {
+    required bool expectingReply,
+    int? destNetwork,
+    Uint8List? destAddress,
+  }) {
+    final npduHeader = encodeNpdu(
+      expectingReply: expectingReply,
+      destNetwork: destNetwork,
+      destAddress: destAddress,
+    );
     final result = Uint8List(npduHeader.length + apdu.length);
     result.setRange(0, npduHeader.length, npduHeader);
     result.setRange(npduHeader.length, result.length, apdu);
