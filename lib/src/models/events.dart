@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../codec/apdu.dart' show AtomicReadFileAck, AtomicWriteFileAck, RpmObjectResult;
 
@@ -16,19 +17,39 @@ class IAmResponse extends BacnetEvent {
     required this.vendorId,
     required this.sourceAddress,
     required this.sourcePort,
+    this.sourceNetwork,
+    this.sourceMac,
   });
 
   final int deviceId;
   final int maxApduLength;
   final int segmentationSupported;
   final int vendorId;
+
+  /// The IP the I-Am arrived from — for a routed device, its router's.
   final InternetAddress sourceAddress;
   final int sourcePort;
 
+  /// The BACnet network the device sits on, when it answered through a router
+  /// (the NPDU's SNET); null for a device on the local network.
+  final int? sourceNetwork;
+
+  /// The device's MAC on [sourceNetwork] (the NPDU's SADR) — one byte for an
+  /// MS/TP device. Null for a device on the local network.
+  final Uint8List? sourceMac;
+
+  /// Whether the device sits behind a router rather than on the local network.
+  bool get isRouted => sourceNetwork != null;
+
   @override
-  String toString() =>
-      'IAmResponse(device: $deviceId, from: ${sourceAddress.address}:$sourcePort)';
+  String toString() => 'IAmResponse(device: $deviceId, from: '
+      '${sourceAddress.address}:$sourcePort'
+      '${isRouted ? ' via network $sourceNetwork mac ${_hex(sourceMac)}' : ''})';
 }
+
+String _hex(Uint8List? bytes) => bytes == null
+    ? ''
+    : bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
 
 /// A ReadProperty-ACK received in response to a read request.
 class ReadPropertyResponse extends BacnetEvent {

@@ -56,13 +56,35 @@ class NpduHeader {
   static const int protocolVersion = 0x01;
 }
 
-/// Encode a simple NPDU header for a BACnet/IP application message.
+/// Encode an NPDU header for a BACnet/IP application message.
 ///
 /// For broadcast (Who-Is) set [expectingReply] to false.
 /// For confirmed requests (ReadProperty) set [expectingReply] to true.
-Uint8List encodeNpdu({bool expectingReply = false}) {
-  final control = expectingReply ? NpduControl.expectingReply : 0;
-  return Uint8List.fromList([NpduHeader.protocolVersion, control]);
+///
+/// [destNetwork] and [destAddress] address a device **behind a router** — an
+/// MS/TP device under a BACnet/IP gateway, say. The datagram still goes to the
+/// router's IP; the destination specifier tells the router which network and
+/// MAC to forward it to. Leave both null for a device on the local network.
+Uint8List encodeNpdu({
+  bool expectingReply = false,
+  int? destNetwork,
+  Uint8List? destAddress,
+}) {
+  var control = expectingReply ? NpduControl.expectingReply : 0;
+  if (destNetwork == null) {
+    return Uint8List.fromList([NpduHeader.protocolVersion, control]);
+  }
+  control |= NpduControl.destinationPresent;
+  final dadr = destAddress ?? Uint8List(0);
+  return Uint8List.fromList([
+    NpduHeader.protocolVersion,
+    control,
+    (destNetwork >> 8) & 0xFF,
+    destNetwork & 0xFF,
+    dadr.length,
+    ...dadr,
+    0xFF, // hop count
+  ]);
 }
 
 /// Encode NPDU with broadcast destination (global broadcast).
